@@ -1,0 +1,41 @@
+name: Deploy HTML App
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: docker build -t html-demo .
+
+      - name: Save Docker Image
+        run: docker save html-demo > html-demo.tar
+
+      - name: Copy Docker Image to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "html-demo.tar"
+          target: "/home/ubuntu"
+
+      - name: Deploy Container on EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker load < html-demo.tar
+            docker stop html-demo || true
+            docker rm html-demo || true
+            docker run -d -p 80:80 --name html-demo html-demo
