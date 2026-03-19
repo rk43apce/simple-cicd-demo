@@ -1,4 +1,4 @@
-name: Deploy to ECR and EC2
+name: Deploy to EC2 (No ECR)
 
 on:
   push:
@@ -7,55 +7,36 @@ on:
 
 jobs:
   deploy:
-
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password --region $AWS_REGION | \
-          docker login --username AWS --password-stdin \
-          533267450110.dkr.ecr.ap-south-1.amazonaws.com
-
-      - name: Build Docker Image
-        run: |
-          docker build -t html-demo .
-
-      - name: Tag Docker Image
-        run: |
-          docker tag html-demo:latest \
-          533267450110.dkr.ecr.ap-south-1.amazonaws.com/html-demo:latest
-
-      - name: Push Image to ECR
-        run: |
-          docker push 533267450110.dkr.ecr.ap-south-1.amazonaws.com/html-demo:latest
-
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "."
+          target: "/home/ec2-user/app"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            aws ecr get-login-password --region ap-south-1 | \
-            docker login --username AWS --password-stdin \
-            533267450110.dkr.ecr.ap-south-1.amazonaws.com
+            cd /home/ec2-user/app
 
-            docker pull 533267450110.dkr.ecr.ap-south-1.amazonaws.com/html-demo:latest
+            # Stop old container
+            docker stop my-app || true
+            docker rm my-app || true
 
-            docker stop html-demo || true
-            docker rm html-demo || true
+            # Build new image
+            docker build -t my-html-app .
 
-            docker run -d -p 80:80 --name html-demo \
-            533267450110.dkr.ecr.ap-south-1.amazonaws.com/html-demo:latest
+            # Run container
+            docker run -d -p 80:80 --name my-app my-html-app
